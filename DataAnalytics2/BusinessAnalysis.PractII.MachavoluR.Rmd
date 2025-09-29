@@ -1,0 +1,459 @@
+---
+title: "Analysis of Film and Music Sales for Media Distributors, Inc."
+subtitle: "Prepared by Oakland Partners"
+author: "Rohini Machavolu"
+date: "Spring 2025 Semester"
+output:
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+    number_sections: true
+    toc_depth: 2
+    theme: paper
+    highlight: tango
+    df_print: paged
+    code_folding: hide
+    keep_md: true
+    self_contained: true
+knit: rmarkdown::render
+# Acknowledgment:
+# Parts of this code were formatted with the help of OpenAI's ChatGPT.
+# Specifically, assistance was used for structuring R Markdown output, ggplot styling.
+# All final code was reviewed and edited manually, and I am able to explain each part.
+---
+
+```{r setup, include=FALSE, echo=FALSE}
+library(tidyverse)
+library(kableExtra)
+library(scales)
+library(lubridate)
+library(DBI)
+library(RMySQL)
+library(ggplot2)
+
+# Connect to the database
+con <- dbConnect(
+  RMySQL::MySQL(),
+  user = Sys.getenv("DB_USER"),
+    password = Sys.getenv("DB_PASSWORD"),
+    dbname = Sys.getenv("DB_NAME"),
+    host = Sys.getenv("DB_HOST"),
+    port = as.integer(Sys.getenv("DB_PORT"))
+)
+
+# Query sales data
+sales_data <- dbGetQuery(con, "
+  SELECT 
+    sf.product_type,
+    COALESCE(dcn.country_name, 'Unknown') AS country_name,
+    COALESCE(dd.year, 0) AS year,
+    COALESCE(dd.quarter, 0) AS quarter,
+    COUNT(DISTINCT dc.customer_id) AS unique_customer_count,
+    COUNT(sf.sale_id) AS transaction_count,
+    SUM(COALESCE(sf.revenue, 0)) AS total_revenue
+  FROM sales_facts sf
+  LEFT JOIN dim_date dd ON sf.date_id = dd.date_id
+  LEFT JOIN dim_country dcn ON sf.country_id = dcn.country_id
+  LEFT JOIN dim_customer dc ON sf.customer_dim_id = dc.customer_dim_id
+  GROUP BY sf.product_type, COALESCE(dcn.country_name, 'Unknown'), COALESCE(dd.year, 0), COALESCE(dd.quarter, 0)
+")
+
+# Disconnect DB
+dbDisconnect(con)
+
+# Standardize country names (e.g., map "United States" to "USA")
+sales_data <- sales_data %>%
+  mutate(country_name = recode(country_name,
+                              "United States" = "USA",
+                              "United States of America" = "USA",
+                              "CAN" = "Canada",
+                              "Unknown" = "Unknown"))
+
+# Debug: Inspect data for USA in 2013 and overall
+print("Raw sales_data sample (first 10 rows):")
+print(head(sales_data, 10))
+print("Unique years in sales_data:")
+print(unique(sales_data$year))
+print("Unique countries in sales_data:")
+print(unique(sales_data$country_name))
+print("Unique product types in sales_data:")
+print(unique(sales_data$product_type))
+print("Summary of transaction_count and total_revenue:")
+print(summary(sales_data[, c("transaction_count", "total_revenue")]))
+print("USA data for 2013:")
+usa_2013_data <- sales_data %>%
+  filter(country_name == "USA", year == 2013)
+print(usa_2013_data)
+print("Total revenue by country for 2013:")
+country_2013_summary <- sales_data %>%
+  filter(year == 2013) %>%
+  group_by(country_name) %>%
+  summarise(total_revenue = sum(total_revenue, na.rm = TRUE)) %>%
+  arrange(desc(total_revenue))
+print(country_2013_summary)
+
+# Additional variables for summary metrics
+# Year with the most sales
+year_most_sales <- sales_data %>%
+  group_by(year) %>%
+  summarise(total_revenue = sum(total_revenue, na.rm = TRUE)) %>%
+  arrange(desc(total_revenue)) %>%
+  slice_head(n = 1)
+
+most_sales_year <- year_most_sales$year
+most_sales_revenue <- year_most_sales$total_revenue
+
+# Country with the most sales in the most recent year
+most_recent_year <- max(sales_data$year, na.rm = TRUE)
+country_sales_recent_year <- sales_data %>%
+  filter(year == most_recent_year) %>%
+  group_by(country_name) %>%
+  summarise(total_revenue = sum(as.numeric(total_revenue), na.rm = TRUE)) %>%
+  arrange(desc(total_revenue))
+
+# Debug: Print top 5 countries by revenue
+print("Top 5 countries by revenue in most recent year:")
+print(head(country_sales_recent_year, 5))
+
+# Extract top two countries
+top_country <- if (nrow(country_sales_recent_year) >= 1) {
+  country_sales_recent_year$country_name[1]
+} else {
+  "Unknown"
+}
+top_country_revenue <- if (nrow(country_sales_recent_year) >= 1) {
+  country_sales_recent_year$total_revenue[1]
+} else {
+  0
+}
+second_country <- if (nrow(country_sales_recent_year) >= 2) {
+  country_sales_recent_year$country_name[2]
+} else {
+  "None"
+}
+second_country_revenue <- if (nrow(country_sales_recent_year) >= 2) {
+  country_sales_recent_year$total_revenue[2]
+} else {
+  0
+}
+
+# Total customers and countries
+total_customers <- sales_data %>%
+  summarise(total = sum(unique_customer_count, na.rm = TRUE)) %>%
+  pull(total)
+
+total_countries <- sales_data %>%
+  distinct(country_name) %>%
+  nrow()
+
+# Top 3 countries by customer count
+top_customer_countries <- sales_data %>%
+  group_by(country_name) %>%
+  summarise(total_customers = sum(unique_customer_count, na.rm = TRUE)) %>%
+  arrange(desc(total_customers)) %>%
+  slice_head(n = 3) %>%
+  pull(country_name)
+
+# Data range for summary
+data_start_year <- min(sales_data$year, na.rm = TRUE)
+data_end_year <- max(sales_data$year, na.rm = TRUE)
+
+# Sales Revenue by Country and Year (Top 5)
+revenue_by_country_year <- sales_data %>%
+  group_by(country_name, year) %>%
+  summarise(total_revenue = sum(total_revenue, na.rm = TRUE)) %>%
+  ungroup()
+
+# Get the two most recent years
+latest_two_years <- sort(unique(sales_data$year), decreasing = TRUE)[1:2]
+
+# Select top 5 countries based on total revenue in the latest two years
+top5_countries_year <- revenue_by_country_year %>%
+  filter(year %in% latest_two_years) %>%
+  group_by(country_name) %>%
+  summarise(total_two_years = sum(total_revenue, na.rm = TRUE)) %>%
+  arrange(desc(total_two_years)) %>%
+  slice_head(n = 5) %>%
+  pull(country_name)
+
+top5_revenue_pivot_year <- revenue_by_country_year %>%
+  filter(country_name %in% top5_countries_year, year %in% latest_two_years) %>%
+  pivot_wider(names_from = year, values_from = total_revenue, values_fill = 0) %>%
+  rowwise() %>%
+  mutate(Total = sum(c_across(where(is.numeric)), na.rm = TRUE)) %>%
+  ungroup() %>%
+  arrange(desc(Total))
+
+# Sales Revenue by Country and Quarter (Top 5)
+revenue_by_country_quarter <- sales_data %>%
+  group_by(country_name, quarter) %>%
+  summarise(total_revenue = sum(total_revenue, na.rm = TRUE)) %>%
+  ungroup()
+
+top5_countries_quarter <- revenue_by_country_quarter %>%
+  group_by(country_name) %>%
+  summarise(total_all_quarters = sum(total_revenue, na.rm = TRUE)) %>%
+  arrange(desc(total_all_quarters)) %>%
+  slice_head(n = 5) %>%
+  pull(country_name)
+
+top5_revenue_pivot_quarter <- revenue_by_country_quarter %>%
+  filter(country_name %in% top5_countries_quarter) %>%
+  pivot_wider(names_from = quarter, values_from = total_revenue, values_fill = 0, names_prefix = "Q") %>%
+  rowwise() %>%
+  mutate(Average = sprintf("%.2f", floor(mean(c_across(starts_with("Q")), na.rm = TRUE) * 100) / 100)) %>%
+  ungroup() %>%
+  mutate(Total = rowSums(select(., starts_with("Q")), na.rm = TRUE)) %>%
+  arrange(desc(Total)) %>%
+  select(-Total)
+
+# Customer Distribution by Country and Product Type (Top 5)
+customer_by_country_product <- sales_data %>%
+  group_by(country_name, product_type) %>%
+  summarise(total_customers = sum(unique_customer_count, na.rm = TRUE)) %>%
+  ungroup()
+
+top5_countries_customer <- customer_by_country_product %>%
+  group_by(country_name) %>%
+  summarise(total_all_products = sum(total_customers, na.rm = TRUE)) %>%
+  arrange(desc(total_all_products)) %>%
+  slice_head(n = 5) %>%
+  pull(country_name)
+
+customer_pivot <- customer_by_country_product %>%
+  filter(country_name %in% top5_countries_customer) %>%
+  pivot_wider(names_from = product_type, values_from = total_customers, values_fill = 0) %>%
+  rowwise() %>%
+  mutate(Total = sum(c_across(where(is.numeric)), na.rm = TRUE)) %>%
+  ungroup() %>%
+  arrange(desc(Total))
+
+# Film vs Music Revenue by Year
+revenue_by_product_year <- sales_data %>%
+  group_by(product_type, year) %>%
+  summarise(total_revenue = sum(total_revenue, na.rm = TRUE)) %>%
+  ungroup()
+
+revenue_pivot_product <- revenue_by_product_year %>%
+  pivot_wider(names_from = year, values_from = total_revenue, values_fill = 0) %>%
+  rowwise() %>%
+  mutate(Total = sum(c_across(where(is.numeric)), na.rm = TRUE)) %>%
+  ungroup() %>%
+  arrange(product_type)
+
+# Compare total revenue for Film and Music
+film_music_comparison <- revenue_pivot_product %>%
+  select(product_type, Total) %>%
+  pivot_wider(names_from = product_type, values_from = Total, values_fill = 0)
+
+# Check the number of product types
+num_products <- ncol(film_music_comparison)
+
+# Generate contribution statement based on number of product types
+if (num_products == 1) {
+  # Only one product type
+  product_name <- names(film_music_comparison)[1]
+  contribution_statement <- paste0(
+    product_name, " is the only product type contributing to revenue, ",
+    "with sales patterns fluctuating by quarter and geography."
+  )
+} else if (num_products >= 2) {
+  # Two or more product types
+  film_music_comparison <- film_music_comparison %>%
+    mutate(
+      product1 = names(.)[1],  # First product type
+      product2 = names(.)[2],  # Second product type
+      value1 = .[[1]],         # Value of first product type
+      value2 = .[[2]],         # Value of second product type
+      higher_contributor = case_when(
+        value1 > value2 ~ paste0(product1, " contributes more significantly to revenue compared to ", product2),
+        value2 > value1 ~ paste0(product2, " contributes more significantly to revenue compared to ", product1),
+        TRUE ~ paste0(product1, " and ", product2, " contribute equally to revenue")
+      ),
+      contribution_statement = paste0(
+        higher_contributor, ", with sales patterns fluctuating by quarter and geography."
+      )
+    )
+  contribution_statement <- film_music_comparison$contribution_statement[1]
+} else {
+  # No product types (unlikely)
+  contribution_statement <- "No product type data available to compare revenue contributions."
+}
+
+# Store the contribution statement
+film_music_comparison <- contribution_statement
+
+# Quarterly Revenue Growth by Product Type
+revenue_growth <- sales_data %>%
+  group_by(year, quarter, product_type) %>%
+  summarise(total_revenue = sum(total_revenue, na.rm = TRUE)) %>%
+  mutate(year_quarter = paste(year, "Q", quarter, sep = ""))
+
+# Top 5 Countries by Revenue by Year and Quarter
+top5_countries <- sales_data %>%
+  group_by(country_name) %>%
+  summarise(total_revenue_all = sum(as.numeric(total_revenue), na.rm = TRUE)) %>%
+  arrange(desc(total_revenue_all)) %>%
+  slice_head(n = 5) %>%
+  pull(country_name)
+
+revenue_by_country_year_quarter <- sales_data %>%
+  filter(country_name %in% top5_countries) %>%
+  group_by(country_name, year, quarter) %>%
+  summarise(total_revenue = sum(as.numeric(total_revenue), na.rm = TRUE)) %>%
+  ungroup() %>%
+  complete(country_name, year, quarter = 1:4, fill = list(total_revenue = 0))
+
+revenue_pivot_country_year_quarter <- revenue_by_country_year_quarter %>%
+  pivot_wider(names_from = year, values_from = total_revenue, values_fill = 0) %>%
+  arrange(country_name, quarter)
+
+table_list <- list()
+for (country in top5_countries) {
+  country_data <- revenue_pivot_country_year_quarter %>%
+    filter(country_name == country) %>%
+    select(-country_name) %>%
+    mutate(quarter = as.character(quarter))
+  
+  country_data_with_totals <- country_data %>%
+    rowwise() %>%
+    mutate(
+      `Quarter Total` = sum(c_across(where(is.numeric) & !contains("Quarter")), na.rm = TRUE),
+      `Quarter Average` = mean(c_across(where(is.numeric) & !contains("Quarter")), na.rm = TRUE)
+    ) %>%
+    ungroup()
+  
+  total_row <- country_data %>%
+    summarise(across(where(is.numeric), sum, na.rm = TRUE)) %>%
+    mutate(quarter = "Total")
+  
+  avg_row <- country_data %>%
+    summarise(across(where(is.numeric), mean, na.rm = TRUE)) %>%
+    mutate(quarter = "Average")
+  
+  total_row <- total_row %>%
+    mutate(
+      `Quarter Total` = sum(c_across(where(is.numeric) & !contains("Quarter")), na.rm = TRUE),
+      `Quarter Average` = mean(c_across(where(is.numeric) & !contains("Quarter")), na.rm = TRUE)
+    )
+  
+  avg_row <- avg_row %>%
+    mutate(
+      `Quarter Total` = sum(c_across(where(is.numeric) & !contains("Quarter")), na.rm = TRUE),
+      `Quarter Average` = mean(c_across(where(is.numeric) & !contains("Quarter")), na.rm = TRUE)
+    )
+  
+  country_table <- bind_rows(
+    country_data_with_totals,
+    total_row,
+    avg_row
+  ) %>%
+    mutate(quarter = paste0("Q", quarter) %>% replace(quarter %in% c("Total", "Average"), c("Total", "Average")))
+  
+  table_list[[country]] <- country_table
+}
+
+# Custom function to truncate numeric values to 2 decimals
+truncate_2_decimals <- function(x) {
+  ifelse(is.na(x), NA, floor(x * 100) / 100)
+}
+
+# Apply to final_table
+final_table <- bind_rows(table_list) %>%
+  select(quarter, everything()) %>%
+  mutate(across(where(is.numeric), truncate_2_decimals))
+
+expected_rows <- length(top5_countries) * 6  
+if (nrow(final_table) != expected_rows) {
+  stop("Unexpected number of rows in final_table: ", nrow(final_table), " (expected ", expected_rows, ")")
+}
+
+
+```
+
+# Background
+
+Media Distributors, Inc. is a Wichita, KY based distributor and seller of films and music for commercial purposes. For the past few years, it has managed its film and music sales separately using different applications. This division is historical as Media Distributors started distributing films and then acquired SoundMania about two years ago. As the two distribution channels were different, CTO Alvin Coelho made the decision not to integrate the SoundMania’s information systems and database with those of Media Distributors. This has not been a problem until now, however Media Distributors intends to make itself available for acquisition. To that end, an integrated view of the business, particularly sales, is needed.
+
+This report provides key sales, revenue, and customer metrics to showcase Media Distributors business. The analysis provided is based on data from a custom-built datamart containing data extracted from two operational databases.
+
+
+# Key Business Metrics
+This sections provides key revenue and customer information segmented by time, country, and business unit. Revenue numbers are in US$.
+
+## Sales Revenue
+The year with the most sales was `r most_sales_year` with a total revenue across both business units of `r scales::dollar(most_sales_revenue)`. The country with the highest sales in `r most_recent_year` was `r top_country` with total revenue across both business units of `r scales::dollar(top_country_revenue, accuracy = 0.01)`. It was followed by `r second_country` with `r scales::dollar(second_country_revenue, accuracy = 0.01)`.
+
+```{r sales-revenue-top5, eval = T, warning = F, echo = FALSE, message = FALSE} 
+kable(top5_revenue_pivot_year, 
+      caption = "Top 5 Countries by Total Revenue (Film + Music) Across Years",
+      col.names = c("Country", colnames(top5_revenue_pivot_year)[-1]),
+      format.args = list(big.mark = ",")) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+```
+The table below shows the revenue broken down by quarter for the top five countries. It shows the total revenue for each quarter across all business units and years. So, for example, the column “Q1” is the total sales for music and film for all years for which there is data, which is from `r data_start_year` to `r data_end_year`.
+
+```{r sales-revenue-quaterly, eval = T, warning = F, echo = FALSE, message = FALSE} 
+kable(top5_revenue_pivot_quarter, 
+      caption = "Top 5 Countries by Total Revenue (Film + Music) Across All Quarters",
+      col.names = c("Country", "Q1", "Q2", "Q3", "Q4", "Average"),
+      format.args = list(big.mark = ",")) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+```
+## Customer Distribution
+Across both business units, there are `r comma(total_customers)` customers in `r total_countries` different countries, with the majority of customers in `r paste(top_customer_countries, collapse = ", ")`.
+
+```{r customer-distribution, eval = T, warning = F, echo = FALSE, message = FALSE} 
+kable(customer_pivot, 
+      caption = "Top 5 Countries by Total Customer Count",
+      col.names = c("Country", colnames(customer_pivot)[-c(1, ncol(customer_pivot))], "Total"),
+      format.args = list(big.mark = ",")) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+```
+
+## Film vs Music Revenue
+Sales fluctuate over time and the table below shows total revenue per month for the years for which we have data.
+```{r Revenue-table, eval = T, warning = F, echo = FALSE, message = FALSE} 
+kable(revenue_pivot_product, 
+      caption = "Film vs Music Revenue by Year",
+      col.names = c("Product Type", colnames(revenue_pivot_product)[-c(1, ncol(revenue_pivot_product))], "Total"),
+      format.args = list(big.mark = ",")) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+```
+
+The graph below illustrates the quarterly growth of the film and music business over the past years for which we have data.
+```{r Revenue-graph, eval = T, warning = F, echo = FALSE, message = FALSE, fig.width=10, fig.height=10} 
+ggplot(revenue_growth, aes(x = year_quarter, y = total_revenue)) +
+  geom_line(aes(color = product_type, group = product_type), size = 1) +
+  geom_point(aes(color = product_type), size = 3) +
+  facet_wrap(~ product_type, scales = "free_y", ncol = 1) +
+  theme_minimal() +
+  labs(
+    title = "Quarterly Revenue Growth by Product Type",
+    x = "Year-Quarter",
+    y = "Total Revenue (USD)"
+  ) +
+  scale_y_continuous(labels = scales::dollar_format()) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    strip.text = element_text(size = 12, face = "bold"),
+    strip.background = element_rect(fill = "lightgray")
+  )
+```
+In terms of units sold, the table below sheds light on this by country and by business unit.
+
+Number of units sold by country and business unit for past three years.
+```{r sales-revenue-top3-by-year-quarter, eval = TRUE, warning = FALSE, echo = FALSE, message = FALSE}
+kable(final_table,
+      caption = "Top 5 Countries by Total Revenue (Film + Music) by Year and Quarter",
+      col.names = c("Quarter", colnames(final_table)[-1]),
+      format.args = list(big.mark = ",")) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE) %>%
+  pack_rows(index = setNames(rep(6, length(top5_countries)), top5_countries))
+```
+# Summary and Recommendations
+Based on the available data, the analysis of Media Distributors, Inc.’s film and music sales reveals a robust revenue generation pattern, with `r top_customer_countries[1]` and `r top_customer_countries[2]` emerging as the primary contributors to the company’s total sales. Between `r data_start_year` and `r data_end_year`, sales peaked in `r most_sales_year`, with total revenue reaching `r dollar(most_sales_revenue)` across both business units. `r film_music_comparison`. The customer base is concentrated in `r paste(top_customer_countries, collapse = ", ")`, which also serve as the top-performing markets.
+
+Despite these strengths, Media Distributors, Inc. faces challenges related to its siloed information systems. With plans for acquisition, the company must present a cohesive and integrated business view to appeal to potential buyers. With nearly `r comma(total_customers)` customers across `r total_countries` countries, Media Distributors should invest in customer relationship management (CRM) tools to personalize outreach and foster loyalty. Segmenting customers by preferences (film or music) and spending habits can optimize targeting.

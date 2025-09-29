@@ -1,0 +1,103 @@
+---
+# Part G / Use Data for Reporting & Analytics
+title: "Analyze Sales"
+subtitle: "CS5200 Practicum I"
+author: "Rohini Machavolu"
+date: "Spring 2025"
+output: pdf_document
+---
+
+```{r setup, eval = T, warning = F, echo = FALSE}
+# Load necessary libraries
+library(DBI)
+library(RMySQL)
+library(kableExtra)
+```
+```{r connectDatabase, eval = T, warning = F, echo = FALSE}
+# Establish the database connection
+con <- dbConnect(
+    RMySQL::MySQL(),
+    user = Sys.getenv("DB_USER"),
+    password = Sys.getenv("DB_PASSWORD"),
+    dbname = Sys.getenv("DB_NAME"),
+    host = Sys.getenv("DB_HOST"),
+    port = as.integer(Sys.getenv("DB_PORT"))
+)
+
+```
+## **Analysis by Restaurant**
+
+```{r restaurantAnalysisResults, eval = T, warning = F, echo = FALSE} 
+# Fetch the results of the restaurant analysis
+restaurant_data <- dbGetQuery(con, "SELECT r.RestaurantName, 
+                                        COUNT(v.VisitID) AS TotalVisits, 
+                                        COUNT(DISTINCT c.CustomerID) AS UniqueCustomers, 
+                                        SUM(CASE WHEN c.LoyaltyMember = TRUE THEN 1 ELSE 0 END) AS LoyaltyCustomers, 
+                                        SUM(v.FoodBill + v.AlcoholBill) AS TotalRevenue
+                                    FROM Visit v
+                                    JOIN Restaurant r ON v.RestaurantID = r.RestaurantID
+                                    JOIN Customer c ON v.CustomerID = c.CustomerID
+                                    GROUP BY r.RestaurantName")
+
+# Display the result in a formatted table
+restaurant_data %>%
+  kable("latex", booktabs = TRUE, caption = "Restaurant Data Overview") %>%
+  kable_styling(
+    latex_options = c("striped", "hold_position"),
+    position = "center",
+    font_size = 10
+  ) %>%
+  column_spec(
+    1:ncol(restaurant_data),
+    border_left = TRUE,
+    border_right = TRUE
+  ) %>%
+  row_spec(0, bold = TRUE, background = "#f0f0f0")
+
+```
+
+## **Analysis by Year**
+
+```{r yearAnalysisResults, eval = T, warning = F, echo = FALSE} 
+# Fetch the results of the year analysis
+year_data <- dbGetQuery(con, "SELECT 
+                                YEAR(v.VisitDate) AS Year,
+                                SUM(v.FoodBill + v.AlcoholBill) AS TotalRevenue,
+                                AVG(v.FoodBill + v.AlcoholBill) / AVG(v.PartySize) AS AvgPerParty,
+                                AVG(v.PartySize) AS AvgPartySize
+                               FROM Visit v
+                               GROUP BY YEAR(v.VisitDate)
+                               ORDER BY Year")
+
+# Display the result in a formatted table
+year_data %>%
+  kable("latex", booktabs = TRUE, caption = "Yearly Data Summary") %>%
+  kable_styling(
+    latex_options = c("striped", "hold_position"),
+    position = "center",
+    font_size = 10
+  ) %>%
+  column_spec(
+    1:ncol(year_data),
+    border_left = TRUE,
+    border_right = TRUE
+  ) %>%
+  row_spec(0, bold = TRUE, background = "#f0f0f0")
+```
+
+## **Trend by Year**
+```{r trend, eval = T, warning = F, fig.width=10, fig.height=10, echo = FALSE}
+# Plot the total revenue trend by year
+plot(year_data$Year, year_data$TotalRevenue, 
+     type = "o", col = "blue", xlab = "Year", ylab = "Total Revenue", 
+     main = "Revenue Trend by Year", 
+     pch = 16, cex = 1.2, lwd = 2)
+
+# Add data labels for total revenue at each data point
+text(year_data$Year, year_data$TotalRevenue, labels = round(year_data$TotalRevenue, 2), 
+     pos = 3, cex = 0.8, col = "red")
+```
+```{r disconnectDB, eval = F, warning = F, echo = FALSE}
+# Close the database connection when done
+dbDisconnect(con)
+```  

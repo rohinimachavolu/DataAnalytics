@@ -1,0 +1,63 @@
+---
+title: "Part B / Normalized Database Design"
+author: "Rohini Machavolu"
+date: "11 March 2025"
+output: pdf_document
+---
+
+# **Functional Dependencies**
+
+We define the functional dependencies (FDs) for the given relation.  
+The relation **VisitData** represents by the following attributes:
+
+VisitData(VisitID, Restaurant, ServerEmpID, ServerName, StartDateHired,EndDateHired, HourlyRate, ServerBirthDate, ServerTIN, VisitDate, VisitTime,MealType, PartySize, Genders, WaitTime, CustomerName, CustomerPhone,CustomerEmail, LoyaltyMember, FoodBill, TipAmount, DiscountApplied, PaymentMethod, OrderedAlcohol, AlcoholBill)}
+
+
+### **Functional Dependencies:**
+$$
+\begin{aligned}
+1. & \quad \text{Restaurant} \rightarrow \text{RestaurantID}, \text{RestaurantName}, \text{Location} \\
+   & \quad \text{Explanation: A unique restaurant name determines its ID and location.} \\
+2. & \quad \text{ServerEmpID} \rightarrow \text{ServerName}, \text{StartDateHired}, \text{EndDateHired}, \\
+   & \quad \text{HourlyRate}, \text{ServerBirthDate}, \text{ServerTIN} \\
+   & \quad \text{Explanation: A unique Server Employee ID determines details about the server, including name, } \\
+   & \quad \text{employment dates, hourly rate, birth date, and TIN (Taxpayer Identification Number).} \\
+3. & \quad \text{CustomerPhone} \rightarrow \text{CustomerName}, \text{CustomerEmail}, \text{LoyaltyMember} \\
+   & \quad \text{Explanation: A unique customer phone determines their name, email, and loyalty membership.} \\
+4. & \quad \text{CustomerEmail} \rightarrow \text{CustomerName}, \text{CustomerPhone}, \text{LoyaltyMember} \\
+   & \quad \text{Explanation: A unique customer email determines their name, phone number, and loyalty membership status.} \\
+5. & \quad \text{PaymentMethod} \rightarrow \text{PaymentMethodID}, \text{PaymentMethodName} \\
+   & \quad \text{Explanation: A unique payment method determines its ID and name (e.g., Cash, Credit Card).} \\
+6. & \quad \text{MealType} \rightarrow \text{MealTypeID}, \text{MealDescription} \\
+   & \quad \text{Explanation: A unique meal type determines its ID and description.} \\
+7. & \quad \text{VisitID} \rightarrow \text{Restaurant}, \text{ServerEmpID}, \text{VisitDate}, \text{VisitTime}, \\
+   & \quad \text{MealType}, \text{PartySize}, \text{Genders}, \text{WaitTime}, \text{CustomerName}, \\
+   & \quad \text{CustomerPhone}, \text{CustomerEmail}, \text{LoyaltyMember}, \text{FoodBill}, \text{TipAmount}, \\
+   & \quad \text{DiscountApplied}, \text{PaymentMethod}, \text{OrderedAlcohol}, \text{AlcoholBill} \\
+   & \quad \text{Explanation: A unique visit ID determines all details of a visit, including restaurant, server, meal type, } \\
+   & \quad \text{party size, customer details, bills, discounts, and payment method.}
+\end{aligned}
+$$
+
+---
+
+# **Decomposition to 3NF**
+
+Using the functional dependencies and normalization rules, we decompose the original relation into multiple relations satisfying **Third Normal Form (3NF):**
+
+
+### **Relations:**
+1. **Restaurant** (*RestaurantID [PK], RestaurantName*)  
+2. **Server** (*ServerEmpID [PK], ServerName, StartDateHired, EndDateHired, HourlyRate, ServerBirthDate, ServerTIN*)  
+3. **Customer** (*CustomerID [PK], CustomerName, CustomerPhone, CustomerEmail, LoyaltyMember*)  
+4. **PaymentMethod** (*PaymentMethodID [PK], PaymentMethodName*)  
+5. **MealType** (*MealTypeID [PK], MealTypeName*)  
+6. **Visit** (*VisitID [PK], RestaurantID [FK], ServerEmpID [FK], CustomerID [FK], VisitDate, VisitTime, MealTypeID [FK], PartySize, Genders, WaitTime, FoodBill, TipAmount, DiscountApplied, PaymentMethodID [FK], OrderedAlcohol, AlcoholBill*)  
+
+---
+## Entity-Relationship Diagram
+[ER Diagram on Lucidchart](https://lucid.app/lucidchart/3daa551b-f777-4fe9-9737-9f5c8e04a567/edit?viewport_loc=-1050%2C-508%2C2522%2C1377%2C0_0&invitationId=inv_13bb53e5-ce2f-4a38-a9c6-32325b20a7d8)
+\begin{center}
+\includegraphics[width=0.8\textwidth]{ERD.png}
+\end{center}
+
